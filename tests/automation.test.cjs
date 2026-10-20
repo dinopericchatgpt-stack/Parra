@@ -103,3 +103,17 @@ test('reads separate billing address and same-as-shipping marker', () => {
   assert.equal(api.extractAddressBlock(['Billing address', 'Same as shipping address', 'Conversion summary'], 'Billing address'), 'Same as shipping address');
   assert.equal(api.extractAddressBlock(['Billing address', 'Ana Horvat', 'Testna 1', 'Tags'], 'Billing address'), 'Ana Horvat\nTestna 1');
 });
+
+test('diagnostic report contains structural counts without customer data', () => {
+  const api = load('shopify.js', ['readerDiagnostics'], `
+    const title = {tagName: 'H2', childElementCount: 0, innerText: 'Shipping address'};
+    const body = {tagName: 'BODY', childElementCount: 1, innerText: 'Shipping address\\nAna Horvat\\nTestna 1\\nBilling address\\nSame as shipping address'};
+    title.parentElement = body;
+    globalThis.document = {body, querySelectorAll: (selector) => selector === '*' ? [body, title] : []};
+  `);
+  const report = api.readerDiagnostics();
+  assert.match(report, /Dijagnostika 1\.0\.3/);
+  assert.match(report, /shipping: tekst=1, redci=1, elementi=1/);
+  assert.match(report, /iframe=0; shadow=0/);
+  assert.doesNotMatch(report, /Ana|Horvat|Testna|Same as shipping/);
+});

@@ -3,6 +3,7 @@
   // dok popup ne posalje poruku SAVE_SHOPIFY_ORDER.
 
   const STORAGE_KEY = "latestOrder";
+  const READER_VERSION = "1.0.3";
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action !== "SAVE_SHOPIFY_ORDER") {
@@ -21,13 +22,40 @@
     const warnings = [];
     const order = readOrderFromPage(warnings);
 
+    if (!order.customerName || !order.shippingAddress.full) {
+      warnings.push(readerDiagnostics());
+    }
     await chrome.storage.local.set({ [STORAGE_KEY]: order });
 
     return {
       ok: true,
+      readerVersion: READER_VERSION,
       order,
       warnings
     };
+  }
+
+  function readerDiagnostics() {
+    // Samo tehnicki brojevi; ne ukljucuj imena, adrese, e-mailove ni URL-ove.
+    const elements = Array.from(document.querySelectorAll("*"));
+    const text = getCleanText(document.body);
+    const lines = getPageLines(text);
+    const counts = ["Shipping address", "Billing address"].map((heading) => {
+      const aliases = addressAliases(heading);
+      const matches = elements.filter((el) => aliases.includes(addressHeading(getCleanText(el))));
+      const lineCount = lines.filter((line) => aliases.includes(addressHeading(line))).length;
+      const ancestors = matches[0] ? ancestorShape(matches[0]) : "-";
+      return `${heading === "Shipping address" ? "shipping" : "billing"}: tekst=${aliases.some((alias) => text.toLowerCase().includes(alias)) ? 1 : 0}, redci=${lineCount}, elementi=${matches.length}, struktura=${ancestors}`;
+    });
+    return `Dijagnostika ${READER_VERSION}: ${counts.join("; ")}; iframe=${document.querySelectorAll("iframe").length}; shadow=${elements.filter((el) => el.shadowRoot).length}`;
+  }
+
+  function ancestorShape(element) {
+    const result = [];
+    for (let el = element, depth = 0; el && depth < 6; el = el.parentElement, depth += 1) {
+      result.push(`${el.tagName}:${el.childElementCount}:${getCleanText(el).length}`);
+    }
+    return result.join(">");
   }
 
   function readOrderFromPage(warnings) {

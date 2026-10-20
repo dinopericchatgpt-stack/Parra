@@ -3,6 +3,8 @@
 const saveButton = document.getElementById("saveShopify");
 const fillButton = document.getElementById("fillParra");
 const statusBox = document.getElementById("status");
+const extensionVersion = chrome.runtime.getManifest().version;
+document.querySelector("h1").textContent = `Shopify Parra ${extensionVersion}`;
 
 function setStatus(message, type) {
   statusBox.textContent = message;
@@ -49,7 +51,7 @@ saveButton.addEventListener("click", async () => {
       : "";
 
     const itemCount = response.order?.items?.length || 0;
-    setStatus(`Narudzba je spremljena u chrome.storage.local. Stavki: ${itemCount}.${warningText}`, response.warnings?.length ? "warning" : "success");
+    setStatus(`Narudzba je spremljena u chrome.storage.local. Stavki: ${itemCount}. Skripta: ${response.readerVersion || "stara verzija — osvjezi Shopify karticu"}.${warningText}`, response.warnings?.length ? "warning" : "success");
   } catch (error) {
     setStatus(`Greska: ${formatMessageError(error)}`, "error");
   } finally {
