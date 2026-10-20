@@ -55,7 +55,7 @@
       items: readItems(warnings),
       discount: readMoneyNearLabel(pageText, ["Discount", "Popust"]),
       discountCode: readDiscountCode(pageText),
-      shippingCost: readMoneyNearLabel(pageText, ["Shipping", "Dostava"]),
+      shippingCost: readShippingCost(pageText),
       paymentMethod: readPaymentMethod(paymentBlock || pageText),
       totals: {
         subtotal: readMoneyNearLabel(pageText, ["Subtotal", "Meduzbroj"]),
@@ -244,6 +244,21 @@
       }
     }
 
+    return "";
+  }
+
+  function readShippingCost(text) {
+    const lines = getPageLines(text);
+    const money = /(?:€|EUR)\s*(\d+(?:[.,]\d{2}))|(\d+(?:[.,]\d{2}))\s*(?:€|EUR)/i;
+    for (let i = 0; i < lines.length; i += 1) {
+      if (!/^(shipping|dostava)(?:$|\s|:)/i.test(lines[i]) || /^(shipping address|shipping method)/i.test(lines[i])) continue;
+      for (let j = i; j < Math.min(lines.length, i + 4); j += 1) {
+        if (j > i && /^(total|subtotal|tax|paid|discount|ukupno|porez|popust|customer|billing|shipping address)\b/i.test(lines[j])) break;
+        if (/free|besplatno/i.test(lines[j])) return "0.00";
+        const match = lines[j].match(money);
+        if (match) return match[1] || match[2];
+      }
+    }
     return "";
   }
 

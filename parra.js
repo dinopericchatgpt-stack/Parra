@@ -51,9 +51,18 @@
     const contactName = order.customerName || address.name || "";
     const buyerName = contactName;
 
-    fillControl(controlByName("clientId") || fields[0], buyerName, warnings, "Kupac");
     await chooseControl(controlByName("customerType") || fields[1], "Fizicka osoba", warnings, "Tip subjekta", ["Fizička osoba", "Privatna osoba"]);
     await sleep(700);
+
+    // Promjena tipa kupca moze ponovno iscrtati polja i obrisati raniji unos.
+    const buyerFields = sectionControls("Podaci o kupcu", ["Osnovni podaci", "Isporuka", "Stavke"]);
+    const nameField = buyerFields.find((field) => {
+      const labels = Array.from(field.labels || []).map((label) => label.textContent).join(" ");
+      return /ime.*prezime|naziv kupca|ime kupca|customername|buyername|clientname/i.test(
+        [labels, field.getAttribute("name"), field.getAttribute("id"), field.getAttribute("aria-label"), field.getAttribute("placeholder")].join(" ")
+      );
+    }) || controlByName("clientId") || buyerFields[0];
+    fillControl(nameField, buyerName, warnings, "Ime i prezime kupca");
 
     clearControl(controlByName("vatId") || fields[2]);
     await chooseControl(controlByName("countryId") || fields[3], normalizeCountry(address.country), warnings, "Drzava", ["Hr vatska", "Croatia", "HR"]);
@@ -71,42 +80,38 @@
   }
 
   async function fillDelivery(warnings) {
-    await clickDeliveryPeriod(warnings);
-    await sleep(400);
-
-    const fields = sectionControls("Isporuka", ["Stavke", "Dodatno"]);
-    const namedFrom = controlByName("deliveryDateFrom");
-    const namedTo = controlByName("deliveryDateTo");
-    const dateFields = fields.filter((field) => looksLikeDateField(field));
-    const fromField = namedFrom || dateFields[0] || fields[0];
-    const toField = namedTo || dateFields[1] || fields[1];
-
-    if (!fromField || !toField || fields.length < 2) {
-      warnings.push("Nisam pronasao polja Datum od i Datum do, zato ne diram polje Uvjeti isporuke.");
+    const scope = sectionScope("Isporuka", ["Stavke", "Dodatno"]);
+    const label = findVisibleText(["Datum isporuke"], scope, true);
+    const radio = label?.closest("label")?.querySelector("input[type='radio']");
+    if (radio) {
+      radio.click();
+    } else if (label) {
+      label.click();
+    } else {
+      warnings.push("Nisam pronasao opciju Datum isporuke; provjeri nacin isporuke.");
       return;
     }
-
-    const fromDate = parseCroatianDate(readControl(fromField)) || new Date();
-    const toDate = addBusinessDays(fromDate, 10);
-
-    if (!parseCroatianDate(readControl(fromField))) {
-      const fromSelected = await chooseDateFromPicker(fromField, fromDate);
-      if (!fromSelected) {
-        warnings.push("Nisam uspio odabrati Datum od iz kalendara.");
-      }
+    await sleep(400);
+    const fields = sectionControls("Isporuka", ["Stavke", "Dodatno"]);
+    const field = controlByName("deliveryDate") || fields.find(looksLikeDateField);
+    if (!field) {
+      warnings.push("Nisam pronasao polje Datum isporuke.");
+      return;
     }
-
-    const toSelected = await chooseDateFromPicker(toField, toDate);
-    if (!toSelected) {
-      const typed = typeDateLikeUser(toField, toDate);
-      if (!typed) {
-        warnings.push(`Nisam uspio odabrati Datum do ${formatCroatianDate(toDate)} iz kalendara.`);
-      }
+    const today = new Date();
+    const value = field.type === "date"
+      ? `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+      : formatCroatianDate(today);
+    fillControl(field, value, warnings, "Datum isporuke");
+    field.blur();
+    await sleep(200);
+    if (readControl(field).replace(/\s/g, "") !== value) {
+      warnings.push("Datum isporuke nije potvrden; odaberi danasnji datum u kalendaru.");
     }
   }
 
   async function fillItems(order, warnings) {
-    const items = uniqueItems(Array.isArray(order.items) ? order.items : []);
+    const items = invoiceItems(order);
 
     if (!items.length) {
       warnings.push("Nema stavki za upis.");
@@ -146,7 +151,7 @@
   }
 
   async function fillItemsV2(order, warnings) {
-    const items = uniqueItems(Array.isArray(order.items) ? order.items : []);
+    const items = invoiceItems(order);
 
     if (!items.length) {
       warnings.push("Nema stavki za upis.");
@@ -1201,6 +1206,7 @@
   }
 
   function discountPercentForItem(item, order) {
+    if (item.isShipping) return "0";
     if (/WELCOME10/i.test(order.discountCode || "")) {
       return "10,00";
     }
@@ -1258,6 +1264,15 @@
     }
 
     return result;
+  }
+
+  function invoiceItems(order) {
+    const items = uniqueItems(Array.isArray(order.items) ? order.items : []);
+    const cost = moneyToNumber(order.shippingCost);
+    if (cost > 0) {
+      items.push({ name: "Dostava", quantity: "1", unitPrice: cost.toFixed(2), isShipping: true });
+    }
+    return items;
   }
 
   function uniqueItems(items) {
