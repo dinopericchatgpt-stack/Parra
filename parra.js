@@ -3,7 +3,9 @@
   // Ne klika "Izdaj racun", "Spremi nacrt" ni submit gumbe.
 
   const STORAGE_KEY = "latestOrder";
-  const PARRA_VERSION = "1.0.6";
+  const PARRA_VERSION = "1.0.7";
+  const TAX_REASON_PREFIX = "Prijenos porezne obveze prema čl. 17 st. 1 Zakona o";
+  const TAX_REASON_TEXT = `${TAX_REASON_PREFIX} PDV-u`;
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === "GET_PARRA_VERSION") {
@@ -101,13 +103,17 @@
     await sleep(300);
     // Osnova moze promijeniti dostupne razloge i ponovno iscrtati polje.
     const reason = invoiceTaxControls().reason;
-    const value = "PDV nije obračunat prema čl. 90 st. 1 i st. 2 Zakona o PDV-u";
-    if (reason?.getAttribute("role") === "combobox" || reason?.tagName === "SELECT") {
-      await chooseControl(reason, value, warnings, "Razlog oslobodenja racuna", [], false, true);
-    } else {
-      fillControl(reason, value, warnings, "Razlog oslobodenja racuna");
-    }
+    await fillTaxReason(reason, warnings, "Razlog oslobodenja racuna");
     return true;
+  }
+
+  async function fillTaxReason(control, warnings, label) {
+    if (control?.getAttribute("role") === "combobox") {
+      // Odaberi cijelu ponudenu opciju prema jednoznacnom pocetku s prikaza.
+      await chooseControl(control, TAX_REASON_PREFIX, warnings, label, [], false, true, true);
+    } else {
+      fillControl(control, TAX_REASON_TEXT, warnings, label);
+    }
   }
 
   async function fillDelivery(warnings) {
@@ -220,7 +226,7 @@
       scrollToItemIndex(index);
       await chooseControl(findTaxExemptionControl(index), "Ne podlijeze", warnings, `Osnova oslobodenja stavke ${index + 1}`, ["Ne podliježe"]);
       await sleep(300);
-      fillControl(findReasonControl(index), "PDV nije obra\u010dunat prema \u010dl. 90 st. 1 i st. 2 Zakona o PDV-u", warnings, `Razlog oslobodenja stavke ${index + 1}`);
+      await fillTaxReason(findReasonControl(index), warnings, `Razlog oslobodenja stavke ${index + 1}`);
     }
   }
 
@@ -282,14 +288,18 @@
     }
   }
 
-  async function chooseControl(control, value, warnings, label, fallbacks = [], allowUnverified = false, requireOption = false) {
+  async function chooseControl(control, value, warnings, label, fallbacks = [], allowUnverified = false, requireOption = false, matchPrefix = false) {
     if (!control) {
       warnings.push(`Nisam pronasao dropdown: ${label}.`);
       return false;
     }
 
     const alreadySelected = requireOption
-      ? [value, ...fallbacks].some((option) => normalizeText(readControl(control)) === normalizeText(option))
+      ? [value, ...fallbacks].some((option) => {
+        const actual = normalizeText(readControl(control));
+        const expected = normalizeText(option);
+        return matchPrefix ? actual.startsWith(expected) && actual.length > expected.length : actual === expected;
+      })
       : controlLooksSelected(control, value) || fallbacks.some((fallback) => controlLooksSelected(control, fallback));
     if (alreadySelected) {
       return true;
@@ -299,18 +309,27 @@
     const optionScope = requireOption ? {
       querySelectorAll() { return documentScope().querySelectorAll("[role='option'], [role='listbox'] li"); }
     } : documentScope();
+    const findOption = (text) => {
+      if (!requireOption) return findVisibleText([text], optionScope, true);
+      const expected = normalizeText(text);
+      const matches = optionScope.querySelectorAll().filter((element) => {
+        const actual = normalizeText(element.innerText || element.textContent || "");
+        return matchPrefix ? actual.startsWith(expected) : actual === expected;
+      });
+      return matches.length === 1 ? matches[0] : null;
+    };
     let target = focusControl(control);
 
     for (const optionText of options) {
       openDropdown(target);
       await sleep(250);
 
-      let option = findVisibleText([optionText], optionScope, true);
+      let option = findOption(optionText);
 
       if (!option) {
         typeIntoCombobox(target, optionText);
         await sleep(500);
-        option = findVisibleText([optionText], optionScope, true);
+        option = findOption(optionText);
       }
 
       if (option && !isSubmitLike(option)) {

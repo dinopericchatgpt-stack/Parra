@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Shopify Parra Autofill",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Lokalno sprema podatke Shopify narudzbe i popunjava Parra novi racun.",
   "permissions": ["activeTab", "storage"],
   "host_permissions": [

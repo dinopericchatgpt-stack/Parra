@@ -112,7 +112,7 @@ test('diagnostic report contains structural counts without customer data', () =>
     globalThis.document = {body, querySelectorAll: (selector) => selector === '*' ? [body, title] : []};
   `);
   const report = api.readerDiagnostics();
-  assert.match(report, /Dijagnostika 1\.0\.6/);
+  assert.match(report, /Dijagnostika 1\.0\.7/);
   assert.match(report, /shipping: tekst=1, redci=1, elementi=1/);
   assert.match(report, /iframe=0; shadow=0/);
   assert.doesNotMatch(report, /Ana|Horvat|Testna|Same as shipping/);
@@ -128,7 +128,7 @@ test('retains row tax fields for the older Parra layout', async () => {
     chooseControl = async (field, value, warnings, label) => {selected.push(label);};
     waitForTaxExemptionFields = async () => {};
     findTaxExemptionControl = () => ({});
-    findReasonControl = () => ({});
+    findReasonControl = () => ({getAttribute() {return "textbox";}});
   `);
   const warnings = [];
   await api.fillItemsV2({items: [{name:'Majica', unitPrice:'20.00', quantity:'1'}]}, warnings, false);
@@ -150,7 +150,7 @@ function popupWithParraVersion(parraVersion) {
   const context = {
     document: {getElementById: () => element, querySelector: () => element},
     chrome: {
-      runtime: {getManifest: () => ({version: '1.0.6'})},
+      runtime: {getManifest: () => ({version: '1.0.7'})},
       tabs: {
         query: async () => [{id: 42}],
         sendMessage: async (id, message) => {
@@ -174,7 +174,7 @@ test('blocks filling with stale or unidentified Parra scripts before changing th
 });
 
 test('fills only after the Parra script reports the installed extension version', async () => {
-  const popup = popupWithParraVersion('1.0.6');
+  const popup = popupWithParraVersion('1.0.7');
   await popup.send('FILL_PARRA_FORM');
   assert.deepEqual(popup.sent, ['GET_PARRA_VERSION', 'FILL_PARRA_FORM']);
 });

@@ -33,10 +33,17 @@ for (const usePlaceholder of [false, true]) test(`uses invoice exemption dropdow
           const list = document.createElement('div'); list.setAttribute('role', 'listbox');
           const option = document.createElement('div'); option.setAttribute('role', 'option'); option.textContent = text;
           option.onclick = () => {input.value = text; window.selectedOptions.push(input.getAttribute('placeholder') || input.name); list.remove(); afterSelect?.();};
-          list.append(option); document.body.append(list);
+          list.append(option);
+          if (text.startsWith('Prijenos porezne obveze')) {
+            for (const wrongText of ['PDV nije obračunat prema čl. 90 st. 1 i st. 2 Zakona o PDV-u', 'Prijenos porezne obveze prema čl. 17 st. 2 Zakona o PDV-u']) {
+              const wrong = document.createElement('div'); wrong.setAttribute('role', 'option'); wrong.textContent = wrongText;
+              wrong.onclick = () => {input.value = wrongText; list.remove();}; list.append(wrong);
+            }
+          }
+          document.body.append(list);
         });
       }
-      const reasonText = 'PDV nije obračunat prema čl. 90 st. 1 i st. 2 Zakona o PDV-u';
+      const reasonText = 'Prijenos porezne obveze prema čl. 17 st. 1 Zakona o PDV-u' + (usePlaceholder ? ' — testni dodatak za provjeru dugackog teksta opcije koja prelazi sto znakova' : '');
       function resetReason() {
         const old = getTaxField('taxExcludeReason');
         const fresh = old.cloneNode(); fresh.value = ''; old.replaceWith(fresh);
@@ -68,7 +75,7 @@ for (const usePlaceholder of [false, true]) test(`uses invoice exemption dropdow
     assert.deepEqual(result.warnings, []);
     assert.deepEqual(result.selected, ['taxExcludeBasis', 'taxExcludeReason']);
     assert.equal(result.basis, 'Ne podliježe');
-    assert.match(result.reason, /čl\. 90/);
+    assert.match(result.reason, /čl\. 17 st\. 1/);
     assert.deepEqual(result.rows, [{name:'Majica A',price:'20,00'}, {name:'Majica B',price:'25,00'}, {name:'Dostava',price:'5,00'}]);
 
     // Nepoznata ponudena opcija mora ostati vidljivo upozorenje.
@@ -82,5 +89,27 @@ for (const usePlaceholder of [false, true]) test(`uses invoice exemption dropdow
     const warnings = await page.evaluate(async () => {const warnings = []; await window.parraTest.fillInvoiceTaxExemption(warnings); return warnings;});
     assert.equal(warnings.length, 1);
     assert.match(warnings[0], /Nisam pronasao ponudenu opciju za Razlog oslobodenja racuna/);
+
+    // Dvije opcije s istim pocetkom ne smiju se odabrati nasumicno.
+    await page.evaluate(() => {
+      const old = document.querySelector('[name=taxExcludeReason], [placeholder=taxExcludeReason]');
+      const fresh = old.cloneNode(); fresh.value = ''; old.replaceWith(fresh);
+      fresh.addEventListener('click', () => {
+        document.querySelector('[role=listbox]')?.remove();
+        const list = document.createElement('div'); list.setAttribute('role', 'listbox');
+        for (const suffix of ['PDV-u, opcija A', 'PDV-u, opcija B']) {
+          const option = document.createElement('div'); option.setAttribute('role', 'option');
+          option.textContent = 'Prijenos porezne obveze prema čl. 17 st. 1 Zakona o ' + suffix;
+          option.onclick = () => {window.selectedOptions.push('ambiguous');}; list.append(option);
+        }
+        document.body.append(list);
+      });
+    });
+    const ambiguous = await page.evaluate(async () => {
+      const warnings = []; await window.parraTest.fillInvoiceTaxExemption(warnings);
+      return {warnings, selected: window.selectedOptions};
+    });
+    assert.equal(ambiguous.warnings.length, 1);
+    assert.ok(!ambiguous.selected.includes('ambiguous'));
   } finally { await browser.close(); }
 });
