@@ -112,7 +112,7 @@ test('diagnostic report contains structural counts without customer data', () =>
     globalThis.document = {body, querySelectorAll: (selector) => selector === '*' ? [body, title] : []};
   `);
   const report = api.readerDiagnostics();
-  assert.match(report, /Dijagnostika 1\.0\.5/);
+  assert.match(report, /Dijagnostika 1\.0\.6/);
   assert.match(report, /shipping: tekst=1, redci=1, elementi=1/);
   assert.match(report, /iframe=0; shadow=0/);
   assert.doesNotMatch(report, /Ana|Horvat|Testna|Same as shipping/);
@@ -142,4 +142,39 @@ test('does not assume global tax exemption if the shared controls do not exist',
   const warnings = [];
   assert.equal(await api.fillInvoiceTaxExemption(warnings), false);
   assert.deepEqual(warnings, []);
+});
+
+function popupWithParraVersion(parraVersion) {
+  const sent = [];
+  const element = {addEventListener() {}};
+  const context = {
+    document: {getElementById: () => element, querySelector: () => element},
+    chrome: {
+      runtime: {getManifest: () => ({version: '1.0.6'})},
+      tabs: {
+        query: async () => [{id: 42}],
+        sendMessage: async (id, message) => {
+          sent.push(message.action);
+          return message.action === 'GET_PARRA_VERSION' ? (parraVersion ? {parraVersion} : undefined) : {ok:true};
+        }
+      }
+    }
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8') + '\nglobalThis.send = sendActionToActiveTab;', context);
+  return {send:context.send, sent};
+}
+
+test('blocks filling with stale or unidentified Parra scripts before changing the form', async () => {
+  for (const version of ['1.0.5', undefined]) {
+    const popup = popupWithParraVersion(version);
+    await assert.rejects(popup.send('FILL_PARRA_FORM'), /Osvjezi Parra karticu/);
+    assert.deepEqual(popup.sent, ['GET_PARRA_VERSION']);
+  }
+});
+
+test('fills only after the Parra script reports the installed extension version', async () => {
+  const popup = popupWithParraVersion('1.0.6');
+  await popup.send('FILL_PARRA_FORM');
+  assert.deepEqual(popup.sent, ['GET_PARRA_VERSION', 'FILL_PARRA_FORM']);
 });

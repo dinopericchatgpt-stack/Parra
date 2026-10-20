@@ -3,8 +3,13 @@
   // Ne klika "Izdaj racun", "Spremi nacrt" ni submit gumbe.
 
   const STORAGE_KEY = "latestOrder";
+  const PARRA_VERSION = "1.0.6";
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === "GET_PARRA_VERSION") {
+      sendResponse({ ok: true, parraVersion: PARRA_VERSION });
+      return false;
+    }
     if (message.action !== "FILL_PARRA_FORM") {
       return false;
     }
@@ -42,7 +47,7 @@
       warnings.push(makeFieldDebug("Stavke polja", sectionControls("Stavke", ["Dodatno"])));
     }
 
-    return { ok: true, warnings };
+    return { ok: true, parraVersion: PARRA_VERSION, warnings };
   }
 
   async function fillBuyer(order, warnings) {
@@ -84,7 +89,8 @@
     // Ograniceno na osnovne podatke: ne uzimaj istoimena polja sa stavki.
     const fields = sectionControls("Osnovni podaci", ["Isporuka", "Stavke", "Dodatno"]);
     const byName = (name) => fields.find((field) =>
-      field.getAttribute("name") === name || field.getAttribute("id") === name);
+      ["name", "id", "placeholder", "aria-label"].some((attribute) =>
+        normalizeText(field.getAttribute(attribute)) === normalizeText(name)));
     return { basis: byName("taxExcludeBasis"), reason: byName("taxExcludeReason") };
   }
 

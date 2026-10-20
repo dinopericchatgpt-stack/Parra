@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
-test('uses invoice exemption dropdowns and fills three items without obsolete tax warnings', async () => {
+for (const usePlaceholder of [false, true]) test(`uses invoice exemption dropdowns identified by ${usePlaceholder ? 'placeholder' : 'name'} without obsolete tax warnings`, async () => {
   const browser = await chromium.launch({executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox']});
   try {
     const page = await browser.newPage();
@@ -17,24 +17,32 @@ test('uses invoice exemption dropdowns and fills three items without obsolete ta
       <input name="taxExcludeReason" role="combobox">
       <h2>Isporuka</h2><input name="deliveryDate">
       <h2>Stavke</h2><section id="rows"></section><button type="button" id="add">Dodaj stavku</button><h2>Dodatno</h2>`);
-    await page.evaluate(() => {
+    await page.evaluate((usePlaceholder) => {
+      if (usePlaceholder) {
+        for (const name of ['taxExcludeBasis', 'taxExcludeReason']) {
+          const field = document.querySelector(`[name=${name}]`);
+          field.setAttribute('placeholder', name);
+          field.name = `generated-${name}`;
+        }
+      }
+      const getTaxField = name => document.querySelector(`[name=${name}], [placeholder=${name}]`);
       window.selectedOptions = [];
       function dropdown(input, text, afterSelect) {
         input.addEventListener('click', () => {
           document.querySelector('[role=listbox]')?.remove();
           const list = document.createElement('div'); list.setAttribute('role', 'listbox');
           const option = document.createElement('div'); option.setAttribute('role', 'option'); option.textContent = text;
-          option.onclick = () => {input.value = text; window.selectedOptions.push(input.name); list.remove(); afterSelect?.();};
+          option.onclick = () => {input.value = text; window.selectedOptions.push(input.getAttribute('placeholder') || input.name); list.remove(); afterSelect?.();};
           list.append(option); document.body.append(list);
         });
       }
       const reasonText = 'PDV nije obračunat prema čl. 90 st. 1 i st. 2 Zakona o PDV-u';
       function resetReason() {
-        const old = document.querySelector('[name=taxExcludeReason]');
+        const old = getTaxField('taxExcludeReason');
         const fresh = old.cloneNode(); fresh.value = ''; old.replaceWith(fresh);
         dropdown(fresh, reasonText);
       }
-      dropdown(document.querySelector('[name=taxExcludeBasis]'), 'Ne podliježe', resetReason);
+      dropdown(getTaxField('taxExcludeBasis'), 'Ne podliježe', resetReason);
       resetReason();
       function addRow() {
         const row = document.createElement('article'); row.className = 'row';
@@ -44,7 +52,7 @@ test('uses invoice exemption dropdowns and fills three items without obsolete ta
       }
       document.querySelector('#add').onclick = addRow; addRow();
       window.chrome = {runtime: {onMessage: {addListener() {}}}};
-    });
+    }, usePlaceholder);
     const source = fs.readFileSync(process.env.PARRA_FORM_SCRIPT || path.join(__dirname, '..', 'parra.js'), 'utf8');
     await page.addScriptTag({content: source.replace(/\}\)\(\);\s*$/, 'sleep = async () => {}; globalThis.parraTest = {fillBasics, fillItemsV2, fillInvoiceTaxExemption};})();')});
     const result = await page.evaluate(async () => {
@@ -52,8 +60,8 @@ test('uses invoice exemption dropdowns and fills three items without obsolete ta
       const globalTax = await window.parraTest.fillBasics(warnings);
       await window.parraTest.fillItemsV2({items: [{name: 'Majica A', quantity:'1',unitPrice:'20.00'}, {name:'Majica B',quantity:'1',unitPrice:'25.00'}],shippingCost:'5.00'}, warnings, globalTax);
       return {warnings, globalTax, selected: window.selectedOptions,
-        basis: document.querySelector('[name=taxExcludeBasis]').value,
-        reason: document.querySelector('[name=taxExcludeReason]').value,
+        basis: document.querySelector('[name=taxExcludeBasis], [placeholder=taxExcludeBasis]').value,
+        reason: document.querySelector('[name=taxExcludeReason], [placeholder=taxExcludeReason]').value,
         rows: Array.from(document.querySelectorAll('.row')).map(row => ({name: row.querySelector('.product').value, price: row.querySelector('[name=unitPrice]').value}))};
     });
     assert.equal(result.globalTax, true);
@@ -65,7 +73,7 @@ test('uses invoice exemption dropdowns and fills three items without obsolete ta
 
     // Nepoznata ponudena opcija mora ostati vidljivo upozorenje.
     await page.evaluate(() => {
-      const field = document.querySelector('[name=taxExcludeReason]');
+      const field = document.querySelector('[name=taxExcludeReason], [placeholder=taxExcludeReason]');
       field.value = '';
       field.addEventListener('click', () => {
         document.querySelector('[role=option]').textContent = 'Drugi zakonski razlog';

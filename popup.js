@@ -32,6 +32,17 @@ async function sendActionToActiveTab(action) {
     throw new Error("Ne mogu pronaci aktivnu karticu.");
   }
 
+  if (action === "FILL_PARRA_FORM") {
+    let info;
+    try {
+      info = await chrome.tabs.sendMessage(tab.id, { action: "GET_PARRA_VERSION" });
+    } catch {
+      throw new Error("Parra skripta nije azurirana ili nije ucitana. Osvjezi Parra karticu nakon azuriranja ekstenzije.");
+    }
+    if (info?.parraVersion !== extensionVersion) {
+      throw new Error(`Verzija Parra skripte (${info?.parraVersion || "stara/nepoznata"}) ne odgovara ekstenziji (${extensionVersion}). Osvjezi Parra karticu.`);
+    }
+  }
   return chrome.tabs.sendMessage(tab.id, { action });
 }
 
@@ -74,7 +85,7 @@ fillButton.addEventListener("click", async () => {
       ? ` Upozorenja: ${response.warnings.join("; ")}`
       : "";
 
-    setStatus(`Parra forma je popunjena. Racun nije izdan niti spremljen.${warningText}`, response.warnings?.length ? "warning" : "success");
+    setStatus(`Parra forma je popunjena. Racun nije izdan niti spremljen. Parra skripta: ${response.parraVersion || "nepoznata"}.${warningText}`, response.warnings?.length ? "warning" : "success");
   } catch (error) {
     setStatus(`Greska: ${formatMessageError(error)}`, "error");
   } finally {
