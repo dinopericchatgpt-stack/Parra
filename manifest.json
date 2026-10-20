@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Shopify Parra Autofill",
+  "version": "1.0.0",
+  "description": "Lokalno sprema podatke Shopify narudzbe i popunjava Parra novi racun.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "https://admin.shopify.com/store/roba-hr-3/orders/*",
+    "https://app.parra.hr/roba-s-porukom-09883/doci/invoices/new*",
+    "https://app.parra.hr/roba-s-porukom-09883/doci/invoices/*"
+  ],
+  "action": {
+    "default_title": "Shopify Parra Autofill",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://admin.shopify.com/store/roba-hr-3/orders/*"],
+      "js": ["shopify.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://app.parra.hr/roba-s-porukom-09883/doci/invoices/new*",
+        "https://app.parra.hr/roba-s-porukom-09883/doci/invoices/*"
+      ],
+      "js": ["parra.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
