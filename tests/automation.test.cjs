@@ -112,8 +112,34 @@ test('diagnostic report contains structural counts without customer data', () =>
     globalThis.document = {body, querySelectorAll: (selector) => selector === '*' ? [body, title] : []};
   `);
   const report = api.readerDiagnostics();
-  assert.match(report, /Dijagnostika 1\.0\.4/);
+  assert.match(report, /Dijagnostika 1\.0\.5/);
   assert.match(report, /shipping: tekst=1, redci=1, elementi=1/);
   assert.match(report, /iframe=0; shadow=0/);
   assert.doesNotMatch(report, /Ana|Horvat|Testna|Same as shipping/);
+});
+
+test('retains row tax fields for the older Parra layout', async () => {
+  const api = load('parra.js', ['fillItemsV2', 'selected'], `
+    const selected = [];
+    scrollToItemIndex = () => {};
+    sleep = async () => {};
+    itemControlsByName = () => ({taxPercentage: {name: 'rowTax'}});
+    fillControl = () => {};
+    chooseControl = async (field, value, warnings, label) => {selected.push(label);};
+    waitForTaxExemptionFields = async () => {};
+    findTaxExemptionControl = () => ({});
+    findReasonControl = () => ({});
+  `);
+  const warnings = [];
+  await api.fillItemsV2({items: [{name:'Majica', unitPrice:'20.00', quantity:'1'}]}, warnings, false);
+  assert.ok(api.selected.includes('PDV stavke 1'));
+  assert.ok(api.selected.includes('Osnova oslobodenja stavke 1'));
+  assert.deepEqual(warnings, []);
+});
+
+test('does not assume global tax exemption if the shared controls do not exist', async () => {
+  const api = load('parra.js', ['fillInvoiceTaxExemption'], 'sectionControls = () => [];');
+  const warnings = [];
+  assert.equal(await api.fillInvoiceTaxExemption(warnings), false);
+  assert.deepEqual(warnings, []);
 });

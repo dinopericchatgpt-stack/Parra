@@ -3,7 +3,7 @@
   // dok popup ne posalje poruku SAVE_SHOPIFY_ORDER.
 
   const STORAGE_KEY = "latestOrder";
-  const READER_VERSION = "1.0.4";
+  const READER_VERSION = "1.0.5";
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action !== "SAVE_SHOPIFY_ORDER") {

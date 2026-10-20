@@ -30,9 +30,9 @@
     const warnings = [];
 
     await fillBuyer(order, warnings);
-    await fillBasics(warnings);
+    const invoiceTaxExemption = await fillBasics(warnings);
     await fillDelivery(warnings);
-    await fillItemsV2(order, warnings);
+    await fillItemsV2(order, warnings, invoiceTaxExemption);
 
     if (warnings.length) {
       warnings.push(makeDebugSummary());
@@ -77,6 +77,31 @@
     // U prikazanoj formi "Nacin placanja" je prvi element u petom redu,
     // odnosno deveto vidljivo polje u sekciji Osnovni podaci.
     await chooseControl(controlByName("paymentMethod") || fields[8], "Kartica", warnings, "Nacin placanja", ["kartica", "Karticno", "Karticno placanje"]);
+    return fillInvoiceTaxExemption(warnings);
+  }
+
+  function invoiceTaxControls() {
+    // Ograniceno na osnovne podatke: ne uzimaj istoimena polja sa stavki.
+    const fields = sectionControls("Osnovni podaci", ["Isporuka", "Stavke", "Dodatno"]);
+    const byName = (name) => fields.find((field) =>
+      field.getAttribute("name") === name || field.getAttribute("id") === name);
+    return { basis: byName("taxExcludeBasis"), reason: byName("taxExcludeReason") };
+  }
+
+  async function fillInvoiceTaxExemption(warnings) {
+    const fields = invoiceTaxControls();
+    if (!fields.basis && !fields.reason) return false;
+    await chooseControl(fields.basis, "Ne podliježe", warnings, "Osnova oslobodenja racuna", ["Ne podlijeze"], false, true);
+    await sleep(300);
+    // Osnova moze promijeniti dostupne razloge i ponovno iscrtati polje.
+    const reason = invoiceTaxControls().reason;
+    const value = "PDV nije obračunat prema čl. 90 st. 1 i st. 2 Zakona o PDV-u";
+    if (reason?.getAttribute("role") === "combobox" || reason?.tagName === "SELECT") {
+      await chooseControl(reason, value, warnings, "Razlog oslobodenja racuna", [], false, true);
+    } else {
+      fillControl(reason, value, warnings, "Razlog oslobodenja racuna");
+    }
+    return true;
   }
 
   async function fillDelivery(warnings) {
@@ -150,7 +175,7 @@
     }
   }
 
-  async function fillItemsV2(order, warnings) {
+  async function fillItemsV2(order, warnings, invoiceTaxExemption = false) {
     const items = invoiceItems(order);
 
     if (!items.length) {
@@ -180,6 +205,9 @@
       await chooseControl(controls.unit, "komad", warnings, `Mjerna jedinica stavke ${index + 1}`, ["kom"], true);
       fillControl(controls.unitPrice, moneyToDecimal(item.unitPrice), warnings, `Jedinicna cijena stavke ${index + 1}`);
       fillControl(controls.discountRate, discountPercentForItem(item, order), warnings, `Popust stavke ${index + 1}`);
+      // Novi obrazac ima zajednicko oslobodenje i nema PDV kontrole na stavkama.
+      // Kad postoji polje PDV na stavci, zadrzi postupak za stari obrazac.
+      if (!controls.taxPercentage && invoiceTaxExemption) continue;
       await chooseControl(controls.taxPercentage, "0%", warnings, `PDV stavke ${index + 1}`, ["0"]);
       await waitForTaxExemptionFields(index);
       await sleep(600);
@@ -248,29 +276,35 @@
     }
   }
 
-  async function chooseControl(control, value, warnings, label, fallbacks = [], allowUnverified = false) {
+  async function chooseControl(control, value, warnings, label, fallbacks = [], allowUnverified = false, requireOption = false) {
     if (!control) {
       warnings.push(`Nisam pronasao dropdown: ${label}.`);
       return false;
     }
 
-    if (controlLooksSelected(control, value) || fallbacks.some((fallback) => controlLooksSelected(control, fallback))) {
+    const alreadySelected = requireOption
+      ? [value, ...fallbacks].some((option) => normalizeText(readControl(control)) === normalizeText(option))
+      : controlLooksSelected(control, value) || fallbacks.some((fallback) => controlLooksSelected(control, fallback));
+    if (alreadySelected) {
       return true;
     }
 
     const options = [value, ...fallbacks];
+    const optionScope = requireOption ? {
+      querySelectorAll() { return documentScope().querySelectorAll("[role='option'], [role='listbox'] li"); }
+    } : documentScope();
     let target = focusControl(control);
 
     for (const optionText of options) {
       openDropdown(target);
       await sleep(250);
 
-      let option = findVisibleText([optionText], documentScope(), true);
+      let option = findVisibleText([optionText], optionScope, true);
 
       if (!option) {
         typeIntoCombobox(target, optionText);
         await sleep(500);
-        option = findVisibleText([optionText], documentScope(), true);
+        option = findVisibleText([optionText], optionScope, true);
       }
 
       if (option && !isSubmitLike(option)) {
@@ -284,6 +318,12 @@
 
         return true;
       }
+    }
+
+    if (requireOption) {
+      target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      warnings.push(`Nisam pronasao ponudenu opciju za ${label}: ${value}. Provjeri odabir rucno.`);
+      return false;
     }
 
     target = focusControl(control);
