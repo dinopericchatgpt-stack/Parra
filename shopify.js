@@ -33,10 +33,10 @@
   function readOrderFromPage(warnings) {
     const pageText = getCleanText(document.body);
     const pageLines = getPageLines(pageText);
-    const customerBlock = findBlockByHeading(["Customer", "Kupac"]);
-    const shippingBlock = extractAddressBlock(pageLines, "Shipping address");
-    const rawBillingBlock = extractAddressBlock(pageLines, "Billing address");
-    const billingBlock = /same as shipping address/i.test(rawBillingBlock) ? shippingBlock : rawBillingBlock;
+    const customerBlock = findBlockByHeading(["Customer", "Kupac", "Kupci"]);
+    const shippingBlock = readAddressSection(pageLines, "Shipping address");
+    const rawBillingBlock = readAddressSection(pageLines, "Billing address");
+    const billingBlock = /same as shipping(?: address)?|isto kao.*(?:dostav|isporuk)|jednaka.*dostav/i.test(rawBillingBlock) ? shippingBlock : rawBillingBlock;
     const paymentBlock = findBlockByHeading(["Paid", "Payment", "Placeno", "Plaćeno"]);
     const shippingAddress = readAddressBlock(shippingBlock, warnings, "shipping adresa");
     const billingAddress = readAddressBlock(billingBlock, warnings, "billing adresa");
@@ -98,30 +98,61 @@
       .filter(Boolean);
   }
 
-  function extractAddressBlock(lines, heading) {
-    const startIndex = lines.findIndex((line) => normalizeForSearch(line) === normalizeForSearch(heading));
+  function addressHeading(value) {
+    return normalizeForSearch(value).replace(/[\u200B-\u200D\uFEFF]/g, "")
+      .replace(/\s*(?:edit|uredi)\s*$/i, "")
+      .replace(/[:：]$/, "").trim();
+  }
 
-    if (startIndex === -1) {
-      return "";
+  function addressAliases(heading) {
+    return heading === "Shipping address"
+      ? ["shipping address", "delivery address", "adresa za dostavu", "adresa dostave", "adresa za isporuku"]
+      : ["billing address", "invoice address", "adresa za naplatu", "adresa naplate", "adresa za račun", "adresa za racun"];
+  }
+
+  function readAddressSection(lines, heading) {
+    const fromLines = extractAddressBlock(lines, heading);
+    if (fromLines) return fromLines;
+    // Naslov i tekst mogu biti u zasebnim DOM elementima bez prijeloma retka.
+    const aliases = addressAliases(heading);
+    const title = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6, [role='heading'], strong, span, p, div"))
+      .find((element) => aliases.includes(addressHeading(getCleanText(element))));
+    for (let parent = title?.parentElement, depth = 0; parent && depth < 4; parent = parent.parentElement, depth += 1) {
+      const text = getCleanText(parent);
+      if (text.length > 1800) break;
+      const block = extractAddressBlock(getPageLines(text), heading);
+      if (block && !/^(edit|uredi)$/i.test(block)) return block;
+      const structured = extractAddressBlock(getPageLines(structuredText(parent)), heading);
+      if (structured && !/^(edit|uredi)$/i.test(structured)) return structured;
+      const address = parent.querySelector("address");
+      if (address && getCleanText(address)) return getCleanText(address);
     }
+    return "";
+  }
 
-    const stopPattern = /^(billing address|shipping address|conversion summary|timeline|notes|additional details|customer|contact information|marketing|tags)$/i;
+  function structuredText(element) {
+    // Shopify moze prikazati blokove bez prijeloma redaka u innerText.
+    // Citaj tekstualne cvorove zasebno, bez HTML-a i skrivenih skripti.
+    if (element.nodeType === 3) return element.textContent || "";
+    if (/^(SCRIPT|STYLE|NOSCRIPT)$/.test(element.tagName || "") ||
+        element.hidden || element.getAttribute?.("aria-hidden") === "true") return "";
+    return Array.from(element.childNodes || []).map(structuredText).filter((text) => text.trim()).join("\n");
+  }
+
+  function extractAddressBlock(lines, heading) {
+    const aliases = addressAliases(heading);
+    const startIndex = lines.findIndex((line) => aliases.includes(addressHeading(line)));
+    if (startIndex === -1) return "";
+    const headings = [...addressAliases("Shipping address"), ...addressAliases("Billing address"),
+      "conversion summary", "timeline", "notes", "additional details", "customer", "contact information",
+      "marketing", "tags", "kupac", "kontakt", "podaci za kontakt", "bilješke", "oznake"];
     const result = [];
-
     for (let index = startIndex + 1; index < lines.length; index += 1) {
       const line = lines[index];
-
-      if (stopPattern.test(line)) {
-        break;
-      }
-
-      if (/^view map$/i.test(line)) {
-        continue;
-      }
-
+      if (headings.includes(addressHeading(line))) break;
+      if (/^(view map|prikaži kartu|prikazi kartu|edit|uredi)$/i.test(line)) continue;
       result.push(line);
     }
-
     return result.join("\n");
   }
 
@@ -173,7 +204,10 @@
       }
     }
 
-    return firstMatch(pageText, /Customer\s*\n\s*([^\n]+)/i, 1);
+    const customerLink = Array.from(document.querySelectorAll('a[href*="/customers/"]'))
+      .map(getCleanText)
+      .find((text) => text && !/[@\d]|view|customer|kupac|prikaz/i.test(text) && text.split(/\s+/).length >= 2);
+    return customerLink || "";
   }
 
   function isBadCustomerLine(line) {

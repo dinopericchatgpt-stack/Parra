@@ -70,3 +70,36 @@ test('uses single delivery date and overwrites an existing old date with today',
   assert.equal(api.field.value, api.formatCroatianDate(new Date()));
   assert.equal(warnings.length, 0);
 });
+
+test('reads address headings with edit controls and Croatian labels', () => {
+  const api = load('shopify.js', ['extractAddressBlock', 'readAddressBlock']);
+  for (const heading of ['Shipping address', 'Shipping address Edit', 'Adresa za dostavu:', 'Delivery address']) {
+    const block = api.extractAddressBlock([heading, 'Uredi', 'Ana Horvat', 'Ulica 1', '10000 Zagreb', 'Croatia', 'Billing address', 'Other person'], 'Shipping address');
+    const address = api.readAddressBlock(block, [], 'shipping');
+    assert.equal(address.name, 'Ana Horvat');
+    assert.equal(address.city, 'Zagreb');
+    assert.ok(!block.includes('Other person'));
+  }
+});
+test('does not invent an address when its heading is absent', () => {
+  const api = load('shopify.js', ['extractAddressBlock']);
+  assert.equal(api.extractAddressBlock(['Customer', 'Ana Horvat', 'Total', '€40.00'], 'Shipping address'), '');
+});
+
+test('reads DOM address when rendered innerText merges heading and address', () => {
+  const api = load('shopify.js', ['readAddressSection'], `
+    const text = (textContent) => ({nodeType: 3, textContent});
+    const title = {innerText: 'Shipping address', childNodes: [text('Shipping address')]};
+    const parent = {innerText: 'Shipping addressAna HorvatTestna 110000 ZagrebCroatia',
+      childNodes: [title, ...['Ana Horvat', 'Testna 1', '10000 Zagreb', 'Croatia'].map(text)],
+      querySelector() {return null;}};
+    title.parentElement = parent;
+    globalThis.document = {querySelectorAll: () => [title]};
+  `);
+  assert.equal(api.readAddressSection(['Shipping addressAna Horvat'], 'Shipping address'), 'Ana Horvat\nTestna 1\n10000 Zagreb\nCroatia');
+});
+test('reads separate billing address and same-as-shipping marker', () => {
+  const api = load('shopify.js', ['extractAddressBlock']);
+  assert.equal(api.extractAddressBlock(['Billing address', 'Same as shipping address', 'Conversion summary'], 'Billing address'), 'Same as shipping address');
+  assert.equal(api.extractAddressBlock(['Billing address', 'Ana Horvat', 'Testna 1', 'Tags'], 'Billing address'), 'Ana Horvat\nTestna 1');
+});
