@@ -112,7 +112,7 @@ test('diagnostic report contains structural counts without customer data', () =>
     globalThis.document = {body, querySelectorAll: (selector) => selector === '*' ? [body, title] : []};
   `);
   const report = api.readerDiagnostics();
-  assert.match(report, /Dijagnostika 1\.0\.3/);
+  assert.match(report, /Dijagnostika 1\.0\.4/);
   assert.match(report, /shipping: tekst=1, redci=1, elementi=1/);
   assert.match(report, /iframe=0; shadow=0/);
   assert.doesNotMatch(report, /Ana|Horvat|Testna|Same as shipping/);

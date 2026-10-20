@@ -3,7 +3,7 @@
   // dok popup ne posalje poruku SAVE_SHOPIFY_ORDER.
 
   const STORAGE_KEY = "latestOrder";
-  const READER_VERSION = "1.0.3";
+  const READER_VERSION = "1.0.4";
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action !== "SAVE_SHOPIFY_ORDER") {
@@ -37,7 +37,7 @@
 
   function readerDiagnostics() {
     // Samo tehnicki brojevi; ne ukljucuj imena, adrese, e-mailove ni URL-ove.
-    const elements = Array.from(document.querySelectorAll("*"));
+    const elements = deepQuerySelectorAll("*");
     const text = getCleanText(document.body);
     const lines = getPageLines(text);
     const counts = ["Shipping address", "Billing address"].map((heading) => {
@@ -52,7 +52,7 @@
 
   function ancestorShape(element) {
     const result = [];
-    for (let el = element, depth = 0; el && depth < 6; el = el.parentElement, depth += 1) {
+    for (let el = element, depth = 0; el && depth < 6; el = composedParent(el), depth += 1) {
       result.push(`${el.tagName}:${el.childElementCount}:${getCleanText(el).length}`);
     }
     return result.join(">");
@@ -107,16 +107,49 @@
     return order;
   }
 
-  function getCleanText(element) {
-    if (!element) {
-      return "";
+  function deepQuerySelectorAll(selector, root = document) {
+    const result = Array.from(root.querySelectorAll(selector));
+    for (const element of Array.from(root.querySelectorAll("*"))) {
+      if (element.shadowRoot) result.push(...deepQuerySelectorAll(selector, element.shadowRoot));
     }
+    return result;
+  }
 
-    return (element.innerText || element.textContent || "")
-      .replace(/\u00a0/g, " ")
+  function composedParent(element) {
+    return element.assignedSlot || element.parentElement || element.getRootNode?.().host || null;
+  }
+
+  function composedText(node) {
+    if (node.nodeType === 3) return node.textContent || "";
+    if (/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(node.tagName || "") ||
+        node.hidden || node.getAttribute?.("aria-hidden") === "true") return "";
+    if (node.tagName === "BR") return "\n";
+    const style = node.nodeType === 1 ? window.getComputedStyle(node) : null;
+    if (style && (style.display === "none" || style.visibility === "hidden")) return "";
+
+    // Slijedi prikazano stablo: shadow root umjesto light DOM-a, a slot samo jednom.
+    let children;
+    if (node.tagName === "SLOT") {
+      const assigned = node.assignedNodes({ flatten: true });
+      children = assigned.length ? assigned : node.childNodes;
+    } else {
+      children = (node.shadowRoot || node).childNodes;
+    }
+    const separatesChildren = style && /flex|grid/.test(style.display);
+    const text = Array.from(children || []).map(composedText).join(separatesChildren ? "\n" : "");
+    const block = style && /^(block|flex|grid|table|list-item|flow-root)/.test(style.display);
+    return block ? `\n${text}\n` : text;
+  }
+
+  function getCleanText(element) {
+    if (!element) return "";
+    const text = element.childNodes && typeof window !== "undefined"
+      ? composedText(element)
+      : element.innerText || element.textContent || "";
+    return text.replace(/\u00a0/g, " ")
+      .replace(/[\u200B-\u200D\uFEFF]/g, "")
       .replace(/[ \t]+/g, " ")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+      .replace(/\n{3,}/g, "\n\n").trim();
   }
 
   function getPageLines(text) {
@@ -143,16 +176,16 @@
     if (fromLines) return fromLines;
     // Naslov i tekst mogu biti u zasebnim DOM elementima bez prijeloma retka.
     const aliases = addressAliases(heading);
-    const title = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6, [role='heading'], strong, span, p, div"))
+    const title = deepQuerySelectorAll("*")
       .find((element) => aliases.includes(addressHeading(getCleanText(element))));
-    for (let parent = title?.parentElement, depth = 0; parent && depth < 4; parent = parent.parentElement, depth += 1) {
+    for (let parent = title && composedParent(title), depth = 0; parent && depth < 8; parent = composedParent(parent), depth += 1) {
       const text = getCleanText(parent);
       if (text.length > 1800) break;
       const block = extractAddressBlock(getPageLines(text), heading);
       if (block && !/^(edit|uredi)$/i.test(block)) return block;
       const structured = extractAddressBlock(getPageLines(structuredText(parent)), heading);
       if (structured && !/^(edit|uredi)$/i.test(structured)) return structured;
-      const address = parent.querySelector("address");
+      const address = deepQuerySelectorAll("address", parent)[0];
       if (address && getCleanText(address)) return getCleanText(address);
     }
     return "";
@@ -206,7 +239,7 @@
   }
 
   function findBlockByHeading(headings) {
-    const elements = Array.from(document.querySelectorAll("section, aside, article, div, li"));
+    const elements = deepQuerySelectorAll("section, aside, article, div, li, s-section, s-stack, s-box");
 
     return elements
       .map((element) => ({ element, text: getCleanText(element) }))
@@ -232,7 +265,7 @@
       }
     }
 
-    const customerLink = Array.from(document.querySelectorAll('a[href*="/customers/"]'))
+    const customerLink = deepQuerySelectorAll('a[href*="/customers/"]')
       .map(getCleanText)
       .find((text) => text && !/[@\d]|view|customer|kupac|prikaz/i.test(text) && text.split(/\s+/).length >= 2);
     return customerLink || "";
@@ -340,7 +373,7 @@
       return dedupeItems(lineItems);
     }
 
-    const candidates = Array.from(document.querySelectorAll("tr, [role='row'], li, div"))
+    const candidates = deepQuerySelectorAll("tr, [role='row'], li, div")
       .map((element) => ({ element, text: getCleanText(element) }))
       .filter((entry) => isPossibleItemRow(entry.text));
 
